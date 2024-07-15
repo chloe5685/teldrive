@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/divyam234/teldrive/internal/config"
 	"github.com/divyam234/teldrive/internal/kv"
@@ -45,12 +44,10 @@ func NewUploadWorker() *UploadWorker {
 }
 
 type Client struct {
-	Tg          *telegram.Client
-	Stop        StopFunc
-	Status      string
-	UserId      string
-	lastUsed    time.Time
-	connections int
+	Tg     *telegram.Client
+	Stop   StopFunc
+	Status string
+	UserId string
 }
 
 type StreamWorker struct {
@@ -96,21 +93,7 @@ func (w *StreamWorker) Next(channelId int64) (*Client, int, error) {
 		w.logger.Debug("started bg client: ", client.UserId)
 	}
 	w.currIdx[channelId] = (index + 1) % len(w.channelBots[channelId])
-	client.lastUsed = time.Now()
-	if client.connections == 0 {
-		client.Status = "serving"
-	}
-	client.connections++
 	return client, index, nil
-}
-
-func (w *StreamWorker) Release(client *Client) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	client.connections--
-	if client.connections == 0 {
-		client.Status = "running"
-	}
 }
 
 func (w *StreamWorker) UserWorker(session string, userId int64) (*Client, error) {
@@ -131,37 +114,7 @@ func (w *StreamWorker) UserWorker(session string, userId int64) (*Client, error)
 		client.Stop = stop
 		w.logger.Debug("started bg client: ", client.UserId)
 	}
-	client.lastUsed = time.Now()
-	if client.connections == 0 {
-		client.Status = "serving"
-	}
-	client.connections++
 	return client, nil
-}
-
-func (w *StreamWorker) startIdleClientMonitor() {
-	ticker := time.NewTicker(w.cnf.BgBotsCheckInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			w.mu.Lock()
-			for _, client := range w.clients {
-				if client.Status == "running" && time.Since(client.lastUsed) > w.cnf.BgBotsTimeout {
-					if client.Stop != nil {
-						client.Stop()
-						client.Stop = nil
-						client.Status = "idle"
-						w.logger.Debug("stopped bg client: ", client.UserId)
-					}
-				}
-			}
-			w.mu.Unlock()
-		case <-w.ctx.Done():
-			return
-		}
-	}
-
 }
 
 func NewStreamWorker(ctx context.Context) func(cnf *config.Config, kv kv.KV) *StreamWorker {
@@ -169,7 +122,7 @@ func NewStreamWorker(ctx context.Context) func(cnf *config.Config, kv kv.KV) *St
 		worker := &StreamWorker{cnf: &cnf.TG, kv: kv, ctx: ctx,
 			clients: make(map[string]*Client), currIdx: make(map[int64]int),
 			channelBots: make(map[int64][]string), logger: logging.FromContext(ctx)}
-		go worker.startIdleClientMonitor()
+
 		return worker
 	}
 }

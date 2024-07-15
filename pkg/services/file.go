@@ -724,12 +724,6 @@ func (fs *FileService) GetFileStream(c *gin.Context, download bool) {
 
 	multiThreads = fs.cnf.TG.Stream.MultiThreads
 
-	defer func() {
-		if client != nil {
-			fs.worker.Release(client)
-		}
-	}()
-
 	if fs.cnf.TG.DisableStreamBots || len(tokens) == 0 {
 		client, err = fs.worker.UserWorker(session.Session, session.UserId)
 		if err != nil {
